@@ -207,7 +207,7 @@ async def send_telegram_message(current_time, country, number, sender, message):
 
 
 # ✅ Admin-only Add/Remove Chat
-ADMIN_ID = 76651402  # <-- apna Telegram numeric ID yaha daalo
+ADMIN_ID = 7761576669 # <-- apna Telegram numeric ID yaha daalo
 
 from telegram.ext import Application, CommandHandler, ContextTypes
 
