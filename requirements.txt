@@ -1,0 +1,9 @@
+websocket-client
+flask
+python-telegram-bot
+requests
+beautifulsoup4
+lxml
+html5lib
+pycountry
+pymongo
