@@ -1,6 +1,5 @@
 import requests
 import re
-import io
 import time
 import hashlib
 import html
@@ -165,61 +164,6 @@ def extract_otp(message: str) -> str | None:
 
     return None
 
-# ✅ Fetch SMS Numbers from "MySMSNumbers2"
-def fetch_sms_numbers():
-    url = "http://51.89.99.105/NumberPanel/agent/MySMSNumbers2"
-    try:
-        res = session.get(url, headers=HEADERS)
-        if "MySMSNumbers" not in res.text:
-            print("❌ Not authorized or session expired.")
-            if not login():
-                return []
-            res = session.get(url, headers=HEADERS)
-
-        soup = BeautifulSoup(res.text, "html.parser")
-        numbers = set()
-
-        # Assuming numbers appear in <td> or table rows
-        for td in soup.find_all("td"):
-            text = td.get_text(strip=True)
-            if re.match(r"^\+?\d{7,15}$", text):  # detect valid phone number
-                numbers.add(text)
-
-        print(f"✅ Found {len(numbers)} SMS numbers.")
-        return list(numbers)
-
-    except Exception as e:
-        print(f"❌ Error fetching SMS numbers: {e}")
-        return []
-
-async def search_command(update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.document:
-        return await update.message.reply_text("📂 Please send a .txt file containing numbers (one per line).")
-
-    file = await update.message.document.get_file()
-    content = await file.download_as_bytearray()
-    text = content.decode("utf-8", errors="ignore")
-    user_numbers = [line.strip() for line in text.splitlines() if line.strip()]
-    await update.message.reply_text(f"🔍 Checking {len(user_numbers)} numbers against panel...")
-
-    # Fetch SMS numbers from panel
-    panel_numbers = fetch_sms_numbers()
-
-    found = []
-    not_found = []
-    for num in user_numbers:
-        if any(num in pn for pn in panel_numbers):
-            found.append(num)
-        else:
-            not_found.append(num)
-
-    summary = (
-        f"✅ Found: {len(found)}\n"
-        f"❌ Not Found: {len(not_found)}\n\n"
-        f"<b>Found Numbers:</b>\n<code>{', '.join(found[:50])}</code>"
-    )
-    await update.message.reply_text(summary, parse_mode="HTML")
-
 # ✅ Final send function (no change in formatting)
 async def send_telegram_message(current_time, country, number, sender, message):
     flag = country_to_flag(country)
@@ -299,7 +243,6 @@ def start_telegram_listener():
     tg_app.add_handler(CommandHandler("start", start_command))
     tg_app.add_handler(CommandHandler("addchat", add_chat))
     tg_app.add_handler(CommandHandler("removechat", remove_chat))
-    tg_app.add_handler(CommandHandler("search", search_command))
     tg_app.run_polling()
 
 # Fetch OTPs and send to Telegram
