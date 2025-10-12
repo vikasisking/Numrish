@@ -1,6 +1,5 @@
 import requests
 import re
-import io
 import time
 import hashlib
 import html
@@ -34,8 +33,8 @@ def country_to_flag(country_name: str) -> str:
 # Configuration
 LOGIN_URL = "http://51.89.99.105/NumberPanel/signin"
 XHR_URL = "http://51.89.99.105/NumberPanel/client/res/data_smscdr.php?fdate1=2025-09-05%2000:00:00&fdate2=2026-09-04%2023:59:59&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&sColumns=%2C%2C%2C%2C%2C%2C%2C%2C&iDisplayStart=0&iDisplayLength=02&mDataProp_0=0&sSearch_0=&bRegex_0=false&bSearchable_0=true&bSortable_0=true&mDataProp_1=1&sSearch_1=&bRegex_1=false&bSearchable_1=true&bSortable_1=true&mDataProp_2=2&sSearch_2=&bRegex_2=false&bSearchable_2=true&bSortable_2=true&mDataProp_3=3&sSearch_3=&bRegex_3=false&bSearchable_3=true&bSortable_3=true&mDataProp_4=4&sSearch_4=&bRegex_4=false&bSearchable_4=true&bSortable_4=true&mDataProp_5=5&sSearch_5=&bRegex_5=false&bSearchable_5=true&bSortable_5=true&mDataProp_6=6&sSearch_6=&bRegex_6=false&bSearchable_6=true&bSortable_6=true&mDataProp_7=7&sSearch_7=&bRegex_7=false&bSearchable_7=true&bSortable_7=true&mDataProp_8=8&sSearch_8=&bRegex_8=false&bSearchable_8=true&bSortable_8=false&sSearch=&bRegex=false&iSortCol_0=0&sSortDir_0=desc&iSortingCols=1&_=1756968295291"
-USERNAME = os.getenv("USERNAME", "rishivdoe92")
-PASSWORD = os.getenv("PASSWORD", "rishivdoe92")
+USERNAME = os.getenv("USERNAME", "rishi890")
+PASSWORD = os.getenv("PASSWORD", "rishi890")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8191752561:AAEJilSRVFYP0znZrPnvqifebyrk4dRaJe8")
 CHAT_ID = "-1002988078993"
 DEVELOPER_ID = "@RISHIHEARTMAKER"  # Replace with your Telegram ID
@@ -165,61 +164,9 @@ def extract_otp(message: str) -> str | None:
 
     return None
 
-# ✅ Fetch SMS Numbers from "MySMSNumbers2"
-def fetch_sms_numbers():
-    url = "http://51.89.99.105/NumberPanel/agent/MySMSNumbers2"
-    try:
-        res = session.get(url, headers=HEADERS)
-        if "MySMSNumbers" not in res.text:
-            print("❌ Not authorized or session expired.")
-            if not login():
-                return []
-            res = session.get(url, headers=HEADERS)
 
-        soup = BeautifulSoup(res.text, "html.parser")
-        numbers = set()
 
-        # Assuming numbers appear in <td> or table rows
-        for td in soup.find_all("td"):
-            text = td.get_text(strip=True)
-            if re.match(r"^\+?\d{7,15}$", text):  # detect valid phone number
-                numbers.add(text)
-
-        print(f"✅ Found {len(numbers)} SMS numbers.")
-        return list(numbers)
-
-    except Exception as e:
-        print(f"❌ Error fetching SMS numbers: {e}")
-        return []
-
-async def search_command(update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.document:
-        return await update.message.reply_text("📂 Please send a .txt file containing numbers (one per line).")
-
-    file = await update.message.document.get_file()
-    content = await file.download_as_bytearray()
-    text = content.decode("utf-8", errors="ignore")
-    user_numbers = [line.strip() for line in text.splitlines() if line.strip()]
-    await update.message.reply_text(f"🔍 Checking {len(user_numbers)} numbers against panel...")
-
-    # Fetch SMS numbers from panel
-    panel_numbers = fetch_sms_numbers()
-
-    found = []
-    not_found = []
-    for num in user_numbers:
-        if any(num in pn for pn in panel_numbers):
-            found.append(num)
-        else:
-            not_found.append(num)
-
-    summary = (
-        f"✅ Found: {len(found)}\n"
-        f"❌ Not Found: {len(not_found)}\n\n"
-        f"<b>Found Numbers:</b>\n<code>{', '.join(found[:50])}</code>"
-    )
-    await update.message.reply_text(summary, parse_mode="HTML")
-
+# ✅ Final send function
 # ✅ Final send function (no change in formatting)
 async def send_telegram_message(current_time, country, number, sender, message):
     flag = country_to_flag(country)
@@ -260,7 +207,7 @@ async def send_telegram_message(current_time, country, number, sender, message):
 
 
 # ✅ Admin-only Add/Remove Chat
-ADMIN_ID = 7761576669 # <-- apna Telegram numeric ID yaha daalo
+ADMIN_ID = 76651402  # <-- apna Telegram numeric ID yaha daalo
 
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -299,7 +246,6 @@ def start_telegram_listener():
     tg_app.add_handler(CommandHandler("start", start_command))
     tg_app.add_handler(CommandHandler("addchat", add_chat))
     tg_app.add_handler(CommandHandler("removechat", remove_chat))
-    tg_app.add_handler(CommandHandler("search", search_command))
     tg_app.run_polling()
 
 # Fetch OTPs and send to Telegram
