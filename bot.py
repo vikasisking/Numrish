@@ -1,105 +1,25 @@
-#!/usr/bin/env python3
-"""
-Number Bot v0.2.0 - Admin-only /status + /mask on|off + error alerts + auto relogin
-Single-file ready-to-run.
-
-Requirements:
-pip install requests beautifulsoup4 pycountry python-telegram-bot==20.0
-(Adjust telegram lib version if needed)
-"""
-
-import os
-import re
-import time
-import json
-import hashlib
-import logging
-import html
-import threading
-import asyncio
-from datetime import datetime, timezone
-from typing import Optional
-
 import requests
+import re
+import io
+import time
+import hashlib
+import html
 from bs4 import BeautifulSoup
+from flask import Flask, Response
+import threading
+import telegram
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+import asyncio
+import os
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 import pycountry
+from datetime import datetime
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-)
+current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# -------------------------
-# Config / Constants
-# -------------------------
-BOT_VERSION = "v0.2.0"
-BUILD_DATE = "2025-10-12"
-
-LOGIN_URL = "http://51.89.99.105/NumberPanel/signin"
-XHR_URL = "http://51.89.99.105/NumberPanel/client/res/data_smscdr.php?fdate1=2025-09-05%2000:00:00&fdate2=2026-09-04%2023:59:59&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&sColumns=%2C%2C%2C%2C%2C%2C%2C%2C&iDisplayStart=0&iDisplayLength=02&mDataProp_0=0&sSearch_0=&bRegex_0=false&bSearchable_0=true&bSortable_0=true&mDataProp_1=1&sSearch_1=&bRegex_1=false&bSearchable_1=true&bSortable_1=true&mDataProp_2=2&sSearch_2=&bRegex_2=false&bSearchable_2=true&bSortable_2=true&mDataProp_3=3&sSearch_3=&bRegex_3=false&bSearchable_3=true&bSortable_3=true&mDataProp_4=4&sSearch_4=&bRegex_4=false&bSearchable_4=true&bSortable_4=true&mDataProp_5=5&sSearch_5=&bRegex_5=false&bSearchable_5=true&bSortable_5=true&mDataProp_6=6&sSearch_6=&bRegex_6=false&bSearchable_6=true&bSortable_6=true&mDataProp_7=7&sSearch_7=&bRegex_7=false&bSearchable_7=true&bSortable_7=true&mDataProp_8=8&sSearch_8=&bRegex_8=false&bSearchable_8=true&bSortable_8=false&sSearch=&bRegex=false&iSortCol_0=0&sSortDir_0=desc&iSortingCols=1&_=1756968295291"
-
-USERNAME = os.getenv("USERNAME", "rishi890")
-PASSWORD = os.getenv("PASSWORD", "rishi890")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8191752561:AAEJilSRVFYP0znZrPnvqifebyrk4dRaJe8")
-
-# Chat & Admin
-CHAT_IDS = os.getenv("CHAT_IDS", "-1002988078993").split(",")  # csv of group ids
-ADMIN_ID = int(os.getenv("ADMIN_ID", "7761576669"))
-DEVELOPER_ID = os.getenv("DEVELOPER_ID", "@RISHIHEARTMAKER")
-CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/TEAM56RJ")
-
-# Headers
-HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "http://51.89.99.105/NumberPanel/login"}
-AJAX_HEADERS = {"User-Agent": "Mozilla/5.0", "X-Requested-With": "XMLHttpRequest", "Referer": "http://51.89.99.105/NumberPanel/client/SMSCDRStats"}
-
-# Runtime state
-MASKING_ENABLED = True
-LOGIN_STATE = {"logged_in": False}
-TOTAL_OTPS_SENT = 0
-LAST_FETCH_TIME: Optional[str] = None
-START_TIME = datetime.now(timezone.utc)
-
-# Persistence files
-SEEN_CACHE_FILE = "seen_cache.json"
-LOG_FILE = "bot.log"
-OTP_LOG_FILE = "otp_logs.txt"
-
-# Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler()]
-)
-logger = logging.getLogger("numberbot")
-
-# Session / seen
-session = requests.Session()
-seen = set()
-EXTRA_CODES = {"Kosovo": "XK"}
-
-# -------------------------
-# Utilities
-# -------------------------
-def load_seen_cache():
-    global seen
-    try:
-        if os.path.exists(SEEN_CACHE_FILE):
-            with open(SEEN_CACHE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    seen = set(data)
-            logger.info("Loaded seen cache (%d items).", len(seen))
-    except Exception as e:
-        logger.exception("Failed to load seen cache: %s", e)
-
-def save_seen_cache():
-    try:
-        with open(SEEN_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(list(seen), f)
-    except Exception as e:
-        logger.exception("Failed to save seen cache: %s", e)
+EXTRA_CODES = {"Kosovo": "XK"}  # special cases
 
 def country_to_flag(country_name: str) -> str:
     code = EXTRA_CODES.get(country_name)
@@ -110,343 +30,354 @@ def country_to_flag(country_name: str) -> str:
         except LookupError:
             return ""
     return "".join(chr(127397 + ord(c)) for c in code.upper())
+    
+# Configuration
+LOGIN_URL = "http://51.89.99.105/NumberPanel/signin"
+XHR_URL = "http://51.89.99.105/NumberPanel/client/res/data_smscdr.php?fdate1=2025-09-05%2000:00:00&fdate2=2026-09-04%2023:59:59&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&sColumns=%2C%2C%2C%2C%2C%2C%2C%2C&iDisplayStart=0&iDisplayLength=02&mDataProp_0=0&sSearch_0=&bRegex_0=false&bSearchable_0=true&bSortable_0=true&mDataProp_1=1&sSearch_1=&bRegex_1=false&bSearchable_1=true&bSortable_1=true&mDataProp_2=2&sSearch_2=&bRegex_2=false&bSearchable_2=true&bSortable_2=true&mDataProp_3=3&sSearch_3=&bRegex_3=false&bSearchable_3=true&bSortable_3=true&mDataProp_4=4&sSearch_4=&bRegex_4=false&bSearchable_4=true&bSortable_4=true&mDataProp_5=5&sSearch_5=&bRegex_5=false&bSearchable_5=true&bSortable_5=true&mDataProp_6=6&sSearch_6=&bRegex_6=false&bSearchable_6=true&bSortable_6=true&mDataProp_7=7&sSearch_7=&bRegex_7=false&bSearchable_7=true&bSortable_7=true&mDataProp_8=8&sSearch_8=&bRegex_8=false&bSearchable_8=true&bSortable_8=false&sSearch=&bRegex=false&iSortCol_0=0&sSortDir_0=desc&iSortingCols=1&_=1756968295291"
+USERNAME = os.getenv("USERNAME", "rishivdoe92")
+PASSWORD = os.getenv("PASSWORD", "rishivdoe92")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8191752561:AAEJilSRVFYP0znZrPnvqifebyrk4dRaJe8")
+CHAT_ID = "-1002988078993"
+DEVELOPER_ID = "@RISHIHEARTMAKER"  # Replace with your Telegram ID
+CHANNEL_LINK = "https://t.me/TEAM56RJ" # Replace with your Telegram channel ID
 
-def mask_number(number: str) -> str:
-    if not MASKING_ENABLED:
-        return number
-    number = str(number)
+# Headers
+HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Referer": "http://51.89.99.105/NumberPanel/login"
+}
+AJAX_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "X-Requested-With": "XMLHttpRequest",
+    "Referer": "http://51.89.99.105/NumberPanel/client/SMSCDRStats"
+}
+
+# Initialize Flask app
+app = Flask(__name__)
+
+# Initialize Telegram bot
+bot = telegram.Bot(token=BOT_TOKEN)
+
+# Session and state
+session = requests.Session()
+seen = set()
+
+# Login function
+def login():
+    res = session.get("http://51.89.99.105/NumberPanel/login", headers=HEADERS)
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    captcha_text = None
+    for string in soup.stripped_strings:
+        if "What is" in string and "+" in string:
+            captcha_text = string.strip()
+            break
+
+    match = re.search(r"What is\s*(\d+)\s*\+\s*(\d+)", captcha_text or "")
+    if not match:
+        print("❌ Captcha not found.")
+        return False
+
+    a, b = int(match.group(1)), int(match.group(2))
+    captcha_answer = str(a + b)
+    print(f"✅ Captcha solved: {a} + {b} = {captcha_answer}")
+
+    payload = {
+        "username": USERNAME,
+        "password": PASSWORD,
+        "capt": captcha_answer
+    }
+
+    res = session.post(LOGIN_URL, data=payload, headers=HEADERS)
+    if "SMSCDRStats" not in res.text:
+        print("❌ Login failed.")
+        return False
+
+    print("✅ Logged in successfully.")
+    return True
+
+# Mask phone number (show first 4 and last 3 digits)
+def mask_number(number):
     if len(number) <= 6:
-        return number
+        return number  # agar chhota number hai to mask na karo
+    # sirf middle 3 digits mask honge
     mid = len(number) // 2
     return number[:mid-1] + "***" + number[mid+2:]
 
-def extract_otp(message: str) -> Optional[str]:
-    message = (message or "").strip()
-    keyword_regex = re.search(r"(?:otp|code|pin|password)[^\d]{0,10}(\d[\d\-]{3,8})", message, re.I)
+
+# Send message to Telegram with inline buttons
+# Multiple group IDs
+CHAT_IDS = [
+    "-1002988078993",
+    
+]
+
+import re
+
+def extract_otp(message: str) -> str | None:
+    """
+    Smart OTP extractor:
+    - Detects numbers with OTP keywords (otp, code, pin, password)
+    - Otherwise finds any standalone 4–8 digit number
+    - Ignores years like 2024, 2025
+    """
+    message = message.strip()
+
+    # Case 1: keyword + number (e.g. "Your OTP is 123456")
+    keyword_regex = re.search(r"(otp|code|pin|password)[^\d]{0,10}(\d{4,8})", message, re.I)
     if keyword_regex:
-        return re.sub(r"\D", "", keyword_regex.group(1))
-    reverse_regex = re.search(r"(\d[\d\-]{3,8})[^\w]{0,10}(?:otp|code|pin|password)", message, re.I)
-    if reverse_regex:
-        return re.sub(r"\D", "", reverse_regex.group(1))
-    generic_regex = re.findall(r"\b\d[\d\-]{3,8}\b", message)
-    for num in generic_regex:
-        num_clean = re.sub(r"\D", "", num)
-        if 4 <= len(num_clean) <= 8 and not (1900 <= int(num_clean) <= 2099):
-            return num_clean
+        return keyword_regex.group(2)
+
+    # Case 2: any 4–8 digit standalone number
+    generic_regex = re.findall(r"\b\d{4,8}\b", message)
+    if generic_regex:
+        for num in generic_regex:
+            if not (1900 <= int(num) <= 2099):  # skip years
+                return num
+
     return None
 
-def format_message(current_time_str, country, number, sender, message_text, otp=None):
+# Send message to Telegram with inline buttons
+import re, html
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+# ✅ OTP extractor
+def extract_otp(message: str) -> str | None:
+    message = message.strip()
+
+    # 1) OTP/Code ke aas-paas digits (dash ko ignore karke)
+    keyword_regex = re.search(r"(otp|code|pin|password)[^\d]{0,10}(\d[\d\-]{3,8})", message, re.I)
+    if keyword_regex:
+        return re.sub(r"\D", "", keyword_regex.group(2))  # non-digits remove
+
+    # 2) Reverse form: "123456 is your login code"
+    reverse_regex = re.search(r"(\d[\d\-]{3,8})[^\w]{0,10}(otp|code|pin|password)", message, re.I)
+    if reverse_regex:
+        return re.sub(r"\D", "", reverse_regex.group(1))
+
+    # 3) Any standalone 4–8 digit number (ignoring years)
+    generic_regex = re.findall(r"\b\d[\d\-]{3,8}\b", message)
+    if generic_regex:
+        for num in generic_regex:
+            num_clean = re.sub(r"\D", "", num)
+            if 4 <= len(num_clean) <= 8 and not (1900 <= int(num_clean) <= 2099):
+                return num_clean
+
+    return None
+
+# ✅ Fetch SMS Numbers from "MySMSNumbers2"
+def fetch_sms_numbers():
+    url = "http://51.89.99.105/NumberPanel/agent/MySMSNumbers2"
+    try:
+        res = session.get(url, headers=HEADERS)
+        if "MySMSNumbers" not in res.text:
+            print("❌ Not authorized or session expired.")
+            if not login():
+                return []
+            res = session.get(url, headers=HEADERS)
+
+        soup = BeautifulSoup(res.text, "html.parser")
+        numbers = set()
+
+        # Assuming numbers appear in <td> or table rows
+        for td in soup.find_all("td"):
+            text = td.get_text(strip=True)
+            if re.match(r"^\+?\d{7,15}$", text):  # detect valid phone number
+                numbers.add(text)
+
+        print(f"✅ Found {len(numbers)} SMS numbers.")
+        return list(numbers)
+
+    except Exception as e:
+        print(f"❌ Error fetching SMS numbers: {e}")
+        return []
+
+async def search_command(update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.document:
+        return await update.message.reply_text("📂 Please send a .txt file containing numbers (one per line).")
+
+    file = await update.message.document.get_file()
+    content = await file.download_as_bytearray()
+    text = content.decode("utf-8", errors="ignore")
+    user_numbers = [line.strip() for line in text.splitlines() if line.strip()]
+    await update.message.reply_text(f"🔍 Checking {len(user_numbers)} numbers against panel...")
+
+    # Fetch SMS numbers from panel
+    panel_numbers = fetch_sms_numbers()
+
+    found = []
+    not_found = []
+    for num in user_numbers:
+        if any(num in pn for pn in panel_numbers):
+            found.append(num)
+        else:
+            not_found.append(num)
+
+    summary = (
+        f"✅ Found: {len(found)}\n"
+        f"❌ Not Found: {len(not_found)}\n\n"
+        f"<b>Found Numbers:</b>\n<code>{', '.join(found[:50])}</code>"
+    )
+    await update.message.reply_text(summary, parse_mode="HTML")
+
+# ✅ Final send function (no change in formatting)
+async def send_telegram_message(current_time, country, number, sender, message):
     flag = country_to_flag(country)
-    otp_line = f"<blockquote>🔑 <b>OTP:</b> <code>{html.escape(str(otp))}</code></blockquote>\n" if otp else ""
+    otp = extract_otp(message)  # 🔎 extract OTP here
+    otp_line = f"<blockquote>🔑 <b>OTP:</b> <code>{html.escape(otp)}</code></blockquote>\n" if otp else ""
+
     formatted = (
-        f"✅ <b>NumberBot {BOT_VERSION}</b>\n\n"
-        f"<blockquote>🕰 <b>Time:</b> <b>{html.escape(current_time_str)}</b></blockquote>\n"
-        f"<blockquote>🌍 <b>Country:</b> <b>{html.escape(country or 'Unknown')} {flag}</b></blockquote>\n"
-        f"<blockquote>📱 <b>Service:</b> <b>{html.escape(str(sender))}</b></blockquote>\n"
-        f"<blockquote>📞 <b>Number:</b> <b>{html.escape(mask_number(str(number)))}</b></blockquote>\n"
+        f"{flag} New {country} {sender} OTP Recived \n\n"
+        f"<blockquote>🕰 <b>Time:</b> <b>{html.escape(str(current_time))}</b></blockquote>\n"
+        f"<blockquote>🌍 <b>Country:</b> <b>{html.escape(country)} {flag}</b></blockquote>\n"
+        f"<blockquote>📱 <b>Service:</b> <b>{html.escape(sender)}</b></blockquote>\n"
+        f"<blockquote>📞 <b>Number:</b> <b>{html.escape(mask_number(number))}</b></blockquote>\n"
         f"{otp_line}"
         f"<blockquote>✉️ <b>Full Message:</b></blockquote>\n"
-        f"<blockquote><code>{html.escape(str(message_text))}</code></blockquote>\n"
-        f"<blockquote>🧩 <b>Powered By:</b> <b>{html.escape(str(DEVELOPER_ID))}</b></blockquote>\n"
+        f"<blockquote><code>{html.escape(message)}</code></blockquote>\n"
+       # f"<blockquote>💥 <b>Powered By: @hiden_25 </b></blockquote>\n"
     )
-    return formatted
 
-# -------------------------
-# Login with retries + admin alert
-# -------------------------
-def login(max_retries: int = 3, delay: float = 3.0) -> bool:
-    """Attempt login. On persistent failure, alert admin."""
-    for attempt in range(1, max_retries + 1):
-        try:
-            res = session.get(LOGIN_URL, headers=HEADERS, timeout=12)
-            soup = BeautifulSoup(res.text, "html.parser")
-            captcha_text = None
-            for string in soup.stripped_strings:
-                if "What is" in string and "+" in string:
-                    captcha_text = string.strip()
-                    break
-            match = re.search(r"What is\s*(\d+)\s*\+\s*(\d+)", captcha_text or "")
-            if not match:
-                logger.warning("Captcha not found on login page (attempt %d).", attempt)
-                LOGIN_STATE["logged_in"] = False
-            else:
-                a, b = int(match.group(1)), int(match.group(2))
-                payload = {"username": USERNAME, "password": PASSWORD, "capt": str(a + b)}
-                res2 = session.post(LOGIN_URL, data=payload, headers=HEADERS, timeout=12)
-                if "SMSCDRStats" in res2.text:
-                    LOGIN_STATE["logged_in"] = True
-                    logger.info("Logged in successfully (attempt %d).", attempt)
-                    return True
-                else:
-                    logger.warning("Login response didn't include SMSCDRStats (attempt %d).", attempt)
-                    LOGIN_STATE["logged_in"] = False
-        except Exception as e:
-            logger.exception("Exception during login attempt %d: %s", attempt, e)
-            LOGIN_STATE["logged_in"] = False
-
-        # retry delay
-        if attempt < max_retries:
-            time.sleep(delay)
-
-    # After retries, alert admin
-    try:
-        alert = (
-            f"⚠️ <b>ALERT:</b> NumberBot failed to login after {max_retries} attempts.\n"
-            f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
-        )
-        # we cannot call bot here (app not passed); but we will set LOGIN_STATE and rely on fetch loop to notify via app.bot
-        logger.error("Login failed after %d attempts. Admin should be notified when bot has access to Telegram context.", max_retries)
-    except Exception:
-        logger.exception("Failed to prepare admin alert message.")
-    return False
-
-# -------------------------
-# Telegram send with error alerts
-# -------------------------
-async def send_to_chats(app, text, reply_markup=None):
-    global TOTAL_OTPS_SENT
-    for chat_id in CHAT_IDS:
-        try:
-            await app.bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                reply_markup=reply_markup,
-                disable_web_page_preview=True,
-                parse_mode="HTML"
-            )
-            TOTAL_OTPS_SENT += 1
-        except Exception as e:
-            logger.exception("Failed to send to %s: %s", chat_id, e)
-            # notify admin
-            try:
-                err_text = (
-                    f"⚠️ <b>Send Failure Alert</b>\n\n"
-                    f"Failed to send message to <code>{chat_id}</code>\n"
-                    f"Reason: {html.escape(str(e))}\n"
-                    f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
-                )
-                await app.bot.send_message(chat_id=ADMIN_ID, text=err_text, parse_mode="HTML")
-            except Exception as ee:
-                logger.exception("Also failed to notify admin: %s", ee)
-
-async def send_telegram_message_async(app, current_time, country, number, sender, message_text):
-    otp = extract_otp(message_text)
-    formatted = format_message(current_time, country, number, sender, message_text, otp)
     keyboard = [
         [InlineKeyboardButton("📱 Channel", url=f"{CHANNEL_LINK}")],
         [InlineKeyboardButton("👨‍💻 Developer", url=f"https://t.me/{DEVELOPER_ID.lstrip('@')}")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await send_to_chats(app, formatted, reply_markup=reply_markup)
 
-# -------------------------
-# Fetch loop
-# -------------------------
-def fetch_otp_loop(app):
-    global LAST_FETCH_TIME
-    logger.info("Starting OTP fetch loop...")
+    await asyncio.sleep(1)  # Delay to avoid flood
+
+    for chat_id in CHAT_IDS:
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=formatted,
+                reply_markup=reply_markup,
+                disable_web_page_preview=True,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"❌ Failed to send to {chat_id}: {e}")
+
+
+# ✅ Admin-only Add/Remove Chat
+ADMIN_ID = 7761576669 # <-- apna Telegram numeric ID yaha daalo
+
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+async def add_chat(update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return await update.message.reply_text("❌ You are not allowed to use this command.")
+    if not context.args:
+        return await update.message.reply_text("Usage: /addchat <chat_id>")
+
+    chat_id = context.args[0]
+    if chat_id not in CHAT_IDS:
+        CHAT_IDS.append(chat_id)
+        await update.message.reply_text(f"✅ Chat ID {chat_id} added.")
+    else:
+        await update.message.reply_text("⚠️ Already in the list.")
+
+async def remove_chat(update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return await update.message.reply_text("❌ You are not allowed to use this command.")
+    if not context.args:
+        return await update.message.reply_text("Usage: /removechat <chat_id>")
+
+    chat_id = context.args[0]
+    if chat_id in CHAT_IDS:
+        CHAT_IDS.remove(chat_id)
+        await update.message.reply_text(f"✅ Chat ID {chat_id} removed.")
+    else:
+        await update.message.reply_text("⚠️ Not found in the list.")
+
+# /start handler
+async def start_command(update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ Bot is Active & Running! Contact If Any Problem @RISHIHEARTMAKER")
+
+def start_telegram_listener():
+    tg_app = Application.builder().token(BOT_TOKEN).build()
+    tg_app.add_handler(CommandHandler("start", start_command))
+    tg_app.add_handler(CommandHandler("addchat", add_chat))
+    tg_app.add_handler(CommandHandler("removechat", remove_chat))
+    tg_app.add_handler(CommandHandler("search", search_command))
+    tg_app.run_polling()
+
+# Fetch OTPs and send to Telegram
+def fetch_otp_loop():
+    print("\n🔄 Starting OTP fetch loop...\n")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-
-    consecutive_login_failures = 0
-
+    
     while True:
         try:
-            # ensure logged in
-            if not LOGIN_STATE.get("logged_in", False):
-                ok = login(max_retries=3, delay=2.0)
-                if not ok:
-                    consecutive_login_failures += 1
-                else:
-                    consecutive_login_failures = 0
-
-                # if repeated failures, notify admin via bot when possible
-                if consecutive_login_failures >= 3:
-                    try:
-                        alert_text = (
-                            f"⚠️ <b>ALERT:</b> Repeated login failures ({consecutive_login_failures}).\n"
-                            f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
-                        )
-                        loop.run_until_complete(app.bot.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode="HTML"))
-                    except Exception:
-                        logger.exception("Failed to notify admin about repeated login failures.")
-                    # wait a bit longer before next attempt
-                    time.sleep(10)
-
-            # attempt to fetch XHR
-            try:
-                res = session.get(XHR_URL, headers=AJAX_HEADERS, timeout=18)
-                data = res.json()
-            except ValueError as ve:
-                logger.exception("JSON decode error while fetching XHR: %s", ve)
-                # notify admin once
-                try:
-                    loop.run_until_complete(app.bot.send_message(
-                        chat_id=ADMIN_ID,
-                        text=f"⚠️ <b>ALERT:</b> JSON decode error while fetching XHR. {html.escape(str(ve))}",
-                        parse_mode="HTML"
-                    ))
-                except Exception:
-                    logger.exception("Failed to notify admin about JSON error.")
-                time.sleep(5)
-                continue
-
+            res = session.get(XHR_URL, headers=AJAX_HEADERS)
+            data = res.json()
             otps = data.get("aaData", [])
+
+            # Remove the last summary row
             otps = [row for row in otps if isinstance(row[0], str) and ":" in row[0]]
 
             new_found = False
-            with open(OTP_LOG_FILE, "a", encoding="utf-8") as f:
+            with open("otp_logs.txt", "a", encoding="utf-8") as f:
                 for row in otps:
                     time_ = row[0]
-                    operator = str(row[1]).split("-")[0] if row[1] else ""
-                    number = str(row[2])
-                    sender = str(row[3])
-                    message = str(row[4])
+                    operator = row[1].split("-")[0]
 
+                    number = row[2]
+                    sender = row[3]
+                    message = row[4]
+
+                    # Unique message hash
                     hash_id = hashlib.md5((number + time_ + message).encode()).hexdigest()
                     if hash_id in seen:
                         continue
                     seen.add(hash_id)
                     new_found = True
 
+                    # Log full details to file
                     log_formatted = (
+                        
                         f"📱 Number:      {number}\n"
                         f"🏷️ Sender ID:   {sender}\n"
                         f"💬 Message:     {message}\n"
-                        f"{'-'*60}\n"
+                        f"{'-'*60}"
                     )
-                    logger.info(log_formatted)
+                    print(log_formatted)
                     f.write(log_formatted + "\n")
 
-                    current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                    try:
-                        loop.run_until_complete(send_telegram_message_async(app, current_time, operator, number, sender, message))
-                    except Exception:
-                        logger.exception("Failed to schedule send task to Telegram.")
+                    # Send masked and formatted message to Telegram
+                    loop.run_until_complete(send_telegram_message(time_, operator, number, sender, message))
 
-                if new_found:
-                    LAST_FETCH_TIME = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                    save_seen_cache()
 
             if not new_found:
-                # less noisy than printing every loop
-                logger.debug("No new OTPs found on this cycle.")
-
+                print("⏳ No new OTPs.")
         except Exception as e:
-            logger.exception("Unexpected error in fetch loop: %s", e)
-            # notify admin
-            try:
-                loop.run_until_complete(app.bot.send_message(
-                    chat_id=ADMIN_ID,
-                    text=f"⚠️ <b>ALERT:</b> Fetch loop encountered an error: {html.escape(str(e))}",
-                    parse_mode="HTML"
-                ))
-            except Exception:
-                logger.exception("Failed to notify admin about fetch loop error.")
-        # small delay (adjustable)
-        time.sleep(1.5)
+            print("❌ Error fetching OTPs:", e)
 
-# -------------------------
-# Telegram handlers (Admin-only status/mask)
-# -------------------------
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uptime_delta = datetime.now(timezone.utc) - START_TIME
-    secs = int(uptime_delta.total_seconds())
-    h, rem = divmod(secs, 3600)
-    m, s = divmod(rem, 60)
-    await update.message.reply_text(f"✅ NumberBot {BOT_VERSION} running.\nUptime: {h}h {m}m {s}s\nUse /status (admin) to view details.")
+        time.sleep(1.2)
 
-def is_admin(user_id: int) -> bool:
-    return user_id == ADMIN_ID
+# Health check endpoint
+@app.route('/health')
+def health():
+    return Response("OK", status=200)
+@app.route("/")
+def root():
+    logger.info("Root endpoint requested")
+    return Response("OK", status=200)
+    
+# Start the OTP fetching loop in a separate thread
+def start_otp_loop():
+    if login():
+        fetch_otp_loop()
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
-        await update.message.reply_text("❌ You are not allowed to use this command.")
-        return
+if __name__ == '__main__':
+    # OTP loop background me
+    otp_thread = threading.Thread(target=start_otp_loop, daemon=True)
+    otp_thread.start()
 
-    uptime_delta = datetime.now(timezone.utc) - START_TIME
-    secs = int(uptime_delta.total_seconds())
-    h, rem = divmod(secs, 3600)
-    m, s = divmod(rem, 60)
-    uptime_str = f"{h}h {m}m {s}s"
-    logged_in = "✅" if LOGIN_STATE.get("logged_in", False) else "❌"
-    mask_state = "ON" if MASKING_ENABLED else "OFF"
-    last_fetch = LAST_FETCH_TIME or "Never"
-    text = (
-        f"🤖 <b>NumberBot {BOT_VERSION} Status</b>\n\n"
-        f"🕒 <b>Uptime:</b> {uptime_str}\n"
-        f"📬 <b>Total OTPs Sent:</b> {TOTAL_OTPS_SENT}\n"
-        f"🔁 <b>Logged in:</b> {logged_in}\n"
-        f"🛡️ <b>Masking:</b> {mask_state}\n"
-        f"⏱️ <b>Last fetch:</b> {last_fetch}\n"
-    )
-    await update.message.reply_text(text, parse_mode="HTML")
+    # Flask background me
+    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080), daemon=True)
+    flask_thread.start()
 
-async def mask_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global MASKING_ENABLED
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
-        await update.message.reply_text("❌ You are not allowed to use this command.")
-        return
-    args = context.args or []
-    if not args:
-        await update.message.reply_text("Usage: /mask on  OR  /mask off")
-        return
-    cmd = args[0].lower()
-    if cmd in ("on", "true", "1"):
-        MASKING_ENABLED = True
-        await update.message.reply_text("✅ Number masking turned ON.")
-    elif cmd in ("off", "false", "0"):
-        MASKING_ENABLED = False
-        await update.message.reply_text("⚠️ Number masking turned OFF. (Numbers will be sent unmasked)")
-    else:
-        await update.message.reply_text("Usage: /mask on  OR  /mask off")
-
-# small convenience aliases
-async def mask_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update.message.text = "/mask on"
-    await mask_command(update, context)
-
-async def mask_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    update.message.text = "/mask off"
-    await mask_command(update, context)
-
-# -------------------------
-# Startup
-# -------------------------
-def start_bot():
-    load_seen_cache()
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # handlers
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("status", status_command))
-    app.add_handler(CommandHandler("mask", mask_command))   # /mask on|off
-    app.add_handler(CommandHandler("mask_on", mask_on_command))
-    app.add_handler(CommandHandler("mask_off", mask_off_command))
-
-    # start fetch loop thread (pass app)
-    def run_fetcher():
-        try:
-            # initial login attempt
-            login()
-        except Exception:
-            logger.exception("Initial login attempt failed.")
-        fetch_otp_loop(app)
-
-    fetcher_thread = threading.Thread(target=run_fetcher, daemon=True)
-    fetcher_thread.start()
-
-    logger.info("Starting Telegram polling...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    try:
-        start_bot()
-    except KeyboardInterrupt:
-        logger.info("Shutting down (KeyboardInterrupt). Saving seen cache.")
-        save_seen_cache()
-    except Exception:
-        logger.exception("Fatal exception in main. Saving seen cache.")
-        save_seen_cache()
+    # Telegram bot MAIN thread me
+    start_telegram_listener()
