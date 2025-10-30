@@ -42,10 +42,10 @@ LOGIN_URL = "http://51.89.99.105/NumberPanel/signin"
 XHR_URL = "http://51.89.99.105/NumberPanel/client/res/data_smscdr.php?fdate1=2025-09-05%2000:00:00&fdate2=2026-09-04%2023:59:59&frange=&fclient=&fnum=&fcli=&fgdate=&fgmonth=&fgrange=&fgclient=&fgnumber=&fgcli=&fg=0&sEcho=1&iColumns=9&sColumns=%2C%2C%2C%2C%2C%2C%2C%2C&iDisplayStart=0&iDisplayLength=02&mDataProp_0=0&sSearch_0=&bRegex_0=false&bSearchable_0=true&bSortable_0=true&mDataProp_1=1&sSearch_1=&bRegex_1=false&bSearchable_1=true&bSortable_1=true&mDataProp_2=2&sSearch_2=&bRegex_2=false&bSearchable_2=true&bSortable_2=true&mDataProp_3=3&sSearch_3=&bRegex_3=false&bSearchable_3=true&bSortable_3=true&mDataProp_4=4&sSearch_4=&bRegex_4=false&bSearchable_4=true&bSortable_4=true&mDataProp_5=5&sSearch_5=&bRegex_5=false&bSearchable_5=true&bSortable_5=true&mDataProp_6=6&sSearch_6=&bRegex_6=false&bSearchable_6=true&bSortable_6=true&mDataProp_7=7&sSearch_7=&bRegex_7=false&bSearchable_7=true&bSortable_7=true&mDataProp_8=8&sSearch_8=&bRegex_8=false&bSearchable_8=true&bSortable_8=false&sSearch=&bRegex=false&iSortCol_0=0&sSortDir_0=desc&iSortingCols=1&_=1756968295291"
 USERNAME = "dxorx898"
 PASSWORD = "dxorx898"
-BOT_USERNAME = "Rishunumbot"
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8191752561:AAEJilSRVFYP0znZrPnvqifebyrk4dRaJe8")
-DEVELOPER_ID = "@RISHIHEARTMAKER"
-CHANNEL_LINK = "https://t.me/TEAM56RJ"
+#BOT_USERNAME = "Rishunumbot"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8271410063:AAEJP7kaIljQ3XWWRDtGlbbJE9wW5OLez9A")
+#DEVELOPER_ID = "@RISHIHEARTMAKER"
+CHANNEL_LINK = "https://t.me/jndtech1"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -105,7 +105,7 @@ def mask_number(number):
     mid = len(number) // 2
     return number[:mid-1] + "***" + number[mid+2:]
 
-CHAT_IDS = ["-1002988078993"]
+CHAT_IDS = ["-1002510533400"]
 ADMIN_ID = 76651402
 ADMIN_CHAT_ID = "76651402"
 
@@ -164,9 +164,9 @@ async def send_telegram_message(current_time, country, number, sender, message):
 
     keyboard = [
         [InlineKeyboardButton("📱 Main Channel", url=f"{CHANNEL_LINK}")],
-        [InlineKeyboardButton("👨‍💻 Developer", url=f"https://t.me/{DEVELOPER_ID.lstrip('@')}")],
+    #    [InlineKeyboardButton("☘ 2nd Channel", url=f"https://t.me/")],
         [
-        InlineKeyboardButton(f"🚀 Number Channel", url=f"https://t.me/{BOT_USERNAME}?start=start")
+        InlineKeyboardButton(f"🚀 Number Channel", url=f"https://t.me/freeotpss")
     ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
