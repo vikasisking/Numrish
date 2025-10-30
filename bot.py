@@ -163,10 +163,10 @@ async def send_telegram_message(current_time, country, number, sender, message):
     )
 
     keyboard = [
-        [InlineKeyboardButton("📱 Channel", url=f"{CHANNEL_LINK}")],
+        [InlineKeyboardButton("📱 Main Channel", url=f"{CHANNEL_LINK}")],
         [InlineKeyboardButton("👨‍💻 Developer", url=f"https://t.me/{DEVELOPER_ID.lstrip('@')}")],
         [
-        InlineKeyboardButton(f"🤖 {BOT_USERNAME}", url=f"https://t.me/{BOT_USERNAME}?start=start")
+        InlineKeyboardButton(f"🚀 Number Channel", url=f"https://t.me/{BOT_USERNAME}?start=start")
     ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
