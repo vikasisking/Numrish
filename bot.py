@@ -192,7 +192,6 @@ async def send_telegram_message(current_time, country, number, sender, message):
 async def start_command(update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ Number Bot {BOT_VERSION} is Active & Running!\n"
-        f"👨‍💻 Developer: {DEVELOPER_ID}\n"
         f"📢 Channel: {CHANNEL_LINK}"
     )
 
